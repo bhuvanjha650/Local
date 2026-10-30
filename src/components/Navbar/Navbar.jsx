@@ -1,4 +1,5 @@
 import { MapPinned } from "lucide-react";
+import { Link } from "react-router-dom";
 
 function Navbar() {
   return (
@@ -59,18 +60,24 @@ function Navbar() {
 
         </ul>
 
-        {/* Buttons */}
-        <div className="flex items-center gap-4">
+       
+{/* Buttons */}
+<div className="flex items-center gap-4">
+  <Link
+    to="/login"
+    className="px-6 py-2.5 rounded-xl font-medium border border-gray-300 hover:bg-gray-100 transition"
+  >
+    Login
+  </Link>
 
-          <button className="px-6 py-2.5 rounded-xl font-medium border border-gray-300 hover:bg-gray-100 transition">
-            Login
-          </button>
+  <Link
+    to="/signup"
+    className="px-6 py-2.5 rounded-xl bg-black text-white font-medium hover:bg-gray-800 transition"
+  >
+    Sign Up
+  </Link>
+</div>
 
-          <button className="px-6 py-2.5 rounded-xl bg-black text-white font-medium hover:bg-gray-800 transition">
-            Sign Up
-          </button>
-
-        </div>
 
       </div>
     </nav>
