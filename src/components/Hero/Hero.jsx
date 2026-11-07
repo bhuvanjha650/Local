@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Bike, CarFront, MapPin } from "lucide-react";
-import MapPicker from "../Map/MapPicker";
+// import MapPicker from "../Map/MapPicker";
+// import LocationSearch from "../LocationSearch/LocationSearch"; // replacing this with ola maps.
+import OlaMap from "../OlaMap/OlaMap";
 import LocationSearch from "../LocationSearch/LocationSearch";
 
 const vehicles = [
@@ -31,19 +33,18 @@ const vehicles = [
 ];
 
 function Hero() {
+  const [routePolyline, setRoutePolyline] = useState(null);
   const [selectedVehicle, setSelectedVehicle] = useState("bike");
   const [message, setMessage] = useState("");
   const [booking, setBooking] = useState(null);
-  const [mapPosition, setMapPosition] = useState(null);
   const [pickupLocation, setPickupLocation] = useState(null);
   const [destinationLocation, setDestinationLocation] = useState(null);
   const [isCalculating, setIsCalculating] = useState(false);
 
-  // Temporary demo distance for vehicle cards and fare preview.
   const demoDistance = 5;
 
   const selectedRide = vehicles.find(
-    (vehicle) => vehicle.id === selectedVehicle,
+    (vehicle) => vehicle.id === selectedVehicle
   );
 
   const estimatedFare =
@@ -51,11 +52,15 @@ function Hero() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+
     setMessage("");
     setBooking(null);
+    setRoutePolyline(null);
 
     if (!pickupLocation || !destinationLocation) {
-      setMessage("Please select both pickup and destination from suggestions.");
+      setMessage(
+        "Please select both pickup and destination from suggestions."
+      );
       return;
     }
 
@@ -70,25 +75,61 @@ function Hero() {
     try {
       setIsCalculating(true);
 
-      const url = `https://router.project-osrm.org/route/v1/driving/${pickupLocation.lng},${pickupLocation.lat};${destinationLocation.lng},${destinationLocation.lat}?overview=false`;
+      const apiKey = import.meta.env.VITE_OLA_MAPS_API_KEY;
 
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error("Unable to calculate route.");
+      if (!apiKey) {
+        throw new Error("Ola Maps API key is missing. Check your .env file.");
       }
+
+      const params = new URLSearchParams({
+        origin: `${pickupLocation.lat},${pickupLocation.lng}`,
+        destination: `${destinationLocation.lat},${destinationLocation.lng}`,
+        mode: "driving",
+        api_key: apiKey,
+      });
+
+      const response = await fetch(
+        `https://api.olamaps.io/routing/v1/directions?${params.toString()}`,
+        {
+          method: "POST",
+          headers: {
+            "X-Request-Id": `LOCAL-${Date.now()}`,
+          },
+        }
+      );
 
       const data = await response.json();
 
-      if (data.code !== "Ok" || !data.routes?.length) {
-        throw new Error("No route found between these locations.");
+      console.log("OLA DIRECTIONS RESPONSE:", data);
+
+      if (!response.ok) {
+        console.error("OLA API ERROR:", data);
+
+        throw new Error(
+          data.message || `Ola Directions API error: ${response.status}`
+        );
       }
 
-      // Convert metres into kilometres.
-      const distance = Number((data.routes[0].distance / 1000).toFixed(2));
+      if (!data.routes?.length) {
+        console.error("Unexpected Ola response:", data);
+        throw new Error("No route found. Check the browser console.");
+      }
+
+      const route = data.routes[0];
+      const leg = route.legs?.[0];
+
+      if (!leg || !route.overview_polyline) {
+        console.error("Missing route details:", route);
+        throw new Error("Ola response is missing route distance or geometry.");
+      }
+
+      const distance = Number((leg.distance / 1000).toFixed(2));
+      const duration = Math.ceil(leg.duration / 60);
+
+      setRoutePolyline(route.overview_polyline);
 
       const fare = Math.round(
-        selectedRide.baseFare + selectedRide.perKm * distance,
+        selectedRide.baseFare + selectedRide.perKm * distance
       );
 
       setBooking({
@@ -97,10 +138,13 @@ function Hero() {
         vehicle: selectedRide.name,
         fare,
         distance,
+        duration,
       });
     } catch (error) {
+      console.error("Route calculation failed:", error);
+
       setMessage(
-        error.message || "Something went wrong while calculating the route.",
+        error.message || "Something went wrong while calculating the route."
       );
     } finally {
       setIsCalculating(false);
@@ -133,7 +177,9 @@ function Hero() {
             onSubmit={handleSubmit}
             className="mt-10 w-full max-w-md rounded-3xl border border-gray-100 bg-white p-6 shadow-2xl"
           >
-            <h3 className="text-xl font-bold text-gray-900">Book your ride</h3>
+            <h3 className="text-xl font-bold text-gray-900">
+              Book your ride
+            </h3>
 
             <p className="mt-1 text-sm text-gray-500">
               Fast pickup. Affordable fares.
@@ -177,6 +223,7 @@ function Hero() {
                         onClick={() => {
                           setSelectedVehicle(vehicle.id);
                           setBooking(null);
+                          setRoutePolyline(null);
                           setMessage("");
                         }}
                         className={`rounded-xl border p-3 text-center transition ${
@@ -190,7 +237,9 @@ function Hero() {
                           className="mx-auto mb-2 text-gray-800"
                         />
 
-                        <p className="text-sm font-semibold">{vehicle.name}</p>
+                        <p className="text-sm font-semibold">
+                          {vehicle.name}
+                        </p>
 
                         <p className="mt-1 text-sm font-bold text-green-700">
                           ₹{fare}
@@ -206,23 +255,22 @@ function Hero() {
                 <div>
                   <p className="text-xs text-gray-500">Estimated Fare</p>
 
-                  {pickupLocation && destinationLocation ? (
-                    <>
-                      <p className="text-xl font-bold">₹{estimatedFare}</p>
-                      <p className="text-xs text-gray-400">
-                        Demo estimate · {demoDistance} km
-                      </p>
-                    </>
-                  ) : (
-                    <p className="mt-1 text-sm text-gray-400">
-                      Enter pickup and destination
-                    </p>
-                  )}
+                  <p className="text-xl font-bold">
+                    ₹{booking ? booking.fare : estimatedFare}
+                  </p>
+
+                  <p className="text-xs text-gray-400">
+                    {booking
+                      ? `Actual route estimate · ${booking.distance} km`
+                      : `Demo estimate · ${demoDistance} km`}
+                  </p>
                 </div>
 
                 {pickupLocation && destinationLocation && (
                   <p className="text-sm font-semibold text-green-600">
-                    {selectedRide.arrival} away
+                    {booking
+                      ? `${booking.duration} min`
+                      : `${selectedRide.arrival} away`}
                   </p>
                 )}
               </div>
@@ -233,7 +281,9 @@ function Hero() {
                 disabled={isCalculating}
                 className="w-full rounded-xl bg-black py-4 font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isCalculating ? "Calculating route..." : "Review Booking →"}
+                {isCalculating
+                  ? "Calculating route..."
+                  : "Review Booking →"}
               </button>
 
               {message && (
@@ -248,10 +298,15 @@ function Hero() {
               {/* Booking Summary */}
               {booking && (
                 <div className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-4">
-                  <h4 className="font-bold text-green-900">Booking Summary</h4>
+                  <h4 className="font-bold text-green-900">
+                    Booking Summary
+                  </h4>
 
                   <div className="flex items-start gap-2 text-sm">
-                    <MapPin size={17} className="shrink-0 text-green-700" />
+                    <MapPin
+                      size={17}
+                      className="shrink-0 text-green-700"
+                    />
                     <div>
                       <p className="text-gray-500">Pickup</p>
                       <p className="font-medium">{booking.pickup}</p>
@@ -259,7 +314,10 @@ function Hero() {
                   </div>
 
                   <div className="flex items-start gap-2 text-sm">
-                    <MapPin size={17} className="shrink-0 text-green-700" />
+                    <MapPin
+                      size={17}
+                      className="shrink-0 text-green-700"
+                    />
                     <div>
                       <p className="text-gray-500">Destination</p>
                       <p className="font-medium">{booking.destination}</p>
@@ -284,22 +342,13 @@ function Hero() {
         </div>
 
         {/* Right Side - Interactive Map */}
-        {/* Show Map only after successful booking estimate */}
         {booking && (
           <div className="flex flex-col gap-4">
-            <h3 className="text-xl font-bold text-gray-900">Your Route</h3>
+            <h3 className="text-xl font-bold text-gray-900">
+              Your Route
+            </h3>
 
-            <MapPicker
-              position={mapPosition}
-              onLocationSelect={setMapPosition}
-            />
-
-            {mapPosition && (
-              <p className="text-sm text-green-700">
-                Selected coordinates: {mapPosition.lat.toFixed(5)},{" "}
-                {mapPosition.lng.toFixed(5)}
-              </p>
-            )}
+            <OlaMap routePolyline={routePolyline} />
           </div>
         )}
       </div>
